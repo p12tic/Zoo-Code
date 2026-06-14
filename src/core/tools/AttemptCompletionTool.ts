@@ -102,7 +102,9 @@ export class AttemptCompletionTool extends BaseTool<"attempt_completion"> {
 							const { historyItem: parentHistory } = await provider.getTaskWithId(task.parentTaskId)
 
 							if (
-								(parentHistory?.status === "delegated" || parentHistory?.status === "active") &&
+								(parentHistory?.status === "delegated" ||
+									parentHistory?.status === "active" ||
+									parentHistory?.status === "delegated_activable") &&
 								parentHistory?.awaitingChildId === task.taskId
 							) {
 								const delegation = await this.delegateToParent(

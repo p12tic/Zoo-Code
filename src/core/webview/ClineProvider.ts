@@ -526,14 +526,18 @@ export class ClineProvider
 					await this.runDelegationTransition(parentTaskId, async () => {
 						const { historyItem: parentHistory } = await this.getTaskWithId(parentTaskId)
 
-						if (parentHistory?.status === "delegated" && parentHistory?.awaitingChildId === childTaskId) {
+						if (
+							(parentHistory?.status === "delegated" ||
+								parentHistory?.status === "delegated_activable") &&
+							parentHistory?.awaitingChildId === childTaskId
+						) {
 							await this.updateTaskHistory({
 								...parentHistory,
 								status: "active",
 								awaitingChildId: undefined,
 							})
 							const repairMsg =
-								`[ClineProvider#removeClineFromStack] Repaired parent ${parentTaskId} metadata: delegated → active (child ${childTaskId} removed). ` +
+								`[ClineProvider#removeClineFromStack] Repaired parent ${parentTaskId} metadata: ${parentHistory.status} → active (child ${childTaskId} removed). ` +
 								`Caller stack: ${callerStack?.split("\n").slice(1, 5).join(" | ")}`
 							this.log(repairMsg)
 							console.warn(repairMsg)
@@ -1109,6 +1113,32 @@ export class ClineProvider
 			rateLimitClock: this.rateLimitClock,
 			diffFuzzyThreshold,
 		})
+
+		// If this task has a parent in "delegated_activable" state, transition parent back to "delegated".
+		// This handles the case where a cancelled child is rehydrated or resumed from history.
+		if (historyItem.parentTaskId) {
+			try {
+				const { historyItem: parentHistory } = await this.getTaskWithId(historyItem.parentTaskId)
+				if (
+					parentHistory?.status === "delegated_activable" &&
+					parentHistory?.awaitingChildId === historyItem.id
+				) {
+					await this.updateTaskHistory({
+						...parentHistory,
+						status: "delegated",
+					})
+					this.log(
+						`[createTaskWithHistoryItem] Restored parent ${historyItem.parentTaskId} to delegated (child ${historyItem.id} resumed)`,
+					)
+				}
+			} catch (err) {
+				this.log(
+					`[createTaskWithHistoryItem] Failed to restore parent delegation for ${historyItem.parentTaskId}: ${
+						(err as Error)?.message ?? String(err)
+					}`,
+				)
+			}
+		}
 
 		if (isRehydratingCurrentTask) {
 			// Replace the current task in-place to avoid UI flicker
@@ -1932,7 +1962,21 @@ export class ClineProvider
 	async showTaskWithId(id: string) {
 		if (id !== this.getCurrentTask()?.taskId) {
 			// Non-current task.
-			const { historyItem } = await this.getTaskWithId(id)
+			let { historyItem } = await this.getTaskWithId(id)
+
+			// If resuming a parent in "delegated_activable" state, detach from child and set to active.
+			if (historyItem.status === "delegated_activable") {
+				historyItem = {
+					...historyItem,
+					status: "active",
+					awaitingChildId: undefined,
+				}
+				await this.updateTaskHistory(historyItem)
+				this.log(
+					`[showTaskWithId] Detached delegated_activable parent ${id}: → active (user resumed parent directly)`,
+				)
+			}
+
 			await this.createTaskWithHistoryItem(historyItem) // Clears existing task.
 		}
 
@@ -3206,15 +3250,14 @@ export class ClineProvider
 					if (parentHistory?.status === "delegated" && parentHistory?.awaitingChildId === task.taskId) {
 						await this.updateTaskHistory({
 							...parentHistory,
-							status: "active",
-							awaitingChildId: undefined,
+							status: "delegated_activable",
+							// Keep awaitingChildId — child can still return via attempt_completion
 						})
-
+	
 						this.log(
-							`[cancelTask] Detached delegated parent ${task.parentTaskId}: delegated → active (child ${task.taskId} cancelled)`,
+							`[cancelTask] Suspended delegated parent ${task.parentTaskId}: delegated → delegated_activable (child ${task.taskId} cancelled)`,
 						)
-						parentTask = undefined
-						rootTask = undefined
+						// Keep parentTask and rootTask — child retains delegation link for attempt_completion
 						// Clear any stale fail-closed entry from a prior failed cancel attempt.
 						this.cancelledDelegationChildIds.delete(task.taskId)
 					}
@@ -3608,7 +3651,9 @@ export class ClineProvider
 			// routing output back would corrupt an unrelated task.
 			if (
 				this.cancelledDelegationChildIds.has(childTaskId) ||
-				(historyItem.status !== "delegated" && historyItem.status !== "active") ||
+				(historyItem.status !== "delegated" &&
+					historyItem.status !== "active" &&
+					historyItem.status !== "delegated_activable") ||
 				historyItem.awaitingChildId !== childTaskId
 			) {
 				this.log(

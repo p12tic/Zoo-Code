@@ -505,7 +505,7 @@ describe("ClineProvider flicker-free cancel", () => {
 		expect((provider as any).clineStack[1]).toBe(mockTask2)
 	})
 
-	it("detaches runtime parent links for a cancelled delegated child while preserving history lineage", async () => {
+	it("sets parent to delegated_activable and preserves delegation link for a cancelled delegated child", async () => {
 		const mockRootTask = { taskId: "root-1" }
 		const mockParentTask = { taskId: "parent-1" }
 		const childHistory: HistoryItem = {
@@ -568,8 +568,8 @@ describe("ClineProvider flicker-free cancel", () => {
 		expect(updateTaskHistorySpy).toHaveBeenCalledWith(
 			expect.objectContaining({
 				id: "parent-1",
-				status: "active",
-				awaitingChildId: undefined,
+				status: "delegated_activable",
+				// awaitingChildId is preserved (not cleared) so child can still return
 			}),
 		)
 		expect(createTaskWithHistoryItemSpy).toHaveBeenCalledWith(
@@ -577,8 +577,7 @@ describe("ClineProvider flicker-free cancel", () => {
 				id: "child-1",
 				parentTaskId: "parent-1",
 				rootTaskId: "root-1",
-				parentTask: undefined,
-				rootTask: undefined,
+				// parentTask and rootTask are preserved (not cleared) so child retains delegation link
 			}),
 		)
 	})
