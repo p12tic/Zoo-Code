@@ -1,11 +1,8 @@
 import * as vscode from "vscode"
 
-import {
-	type ModelInfo,
-	openAiModelInfoSaneDefaults,
-	vscodeLlmBaselineModelInfo,
-	vscodeLlmModels,
-} from "@roo-code/types"
+import { type ModelInfo } from "@roo-code/types"
+import { openAiModelInfoSaneDefaults } from "./openai/definition"
+import { vscodeLlmBaselineModelInfo, vscodeLlmModels } from "./vscode-llm/definition"
 
 import { canCreateImageParts } from "../transform/vscode-lm-image-part"
 

@@ -1,4 +1,4 @@
-import { deepSeekModels } from "@roo-code/types"
+import { deepSeekModels } from "../../deepseek/definition"
 
 import { getDeepSeekModels } from "../deepseek"
 

@@ -2,7 +2,7 @@
 
 import axios from "axios"
 
-import { opencodeGoDefaultModelInfo, opencodeGoModels, getOpencodeGoModelInfo } from "@roo-code/types"
+import { opencodeGoDefaultModelInfo, opencodeGoModels, getOpencodeGoModelInfo } from "../../opencode-go/definition"
 
 import { getOpencodeGoModels, parseOpencodeGoModel } from "../opencode-go"
 

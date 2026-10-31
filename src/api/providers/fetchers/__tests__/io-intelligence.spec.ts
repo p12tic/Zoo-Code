@@ -1,6 +1,6 @@
 import axios from "axios"
 
-import { IO_INTELLIGENCE_BASE_URL, ioIntelligenceDefaultModelInfo } from "@roo-code/types"
+import { IO_INTELLIGENCE_BASE_URL, ioIntelligenceDefaultModelInfo } from "../../io-intelligence/definition"
 
 import { getIOIntelligenceModels, parseIoIntelligenceModel } from "../io-intelligence"
 

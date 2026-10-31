@@ -76,7 +76,7 @@ export const apiProviderTestSelectors = [
 // Ratchet: files that still hold one are listed here. Remove a file from the list when it is clean.
 export const apiSpecTsIgnoreConfig = {
 	files: ["api/**/__tests__/**/*.spec.ts"],
-	ignores: ["api/providers/__tests__/gemini-handler.spec.ts", "api/providers/__tests__/vscode-lm.spec.ts"],
+	ignores: ["api/providers/gemini/__tests__/gemini-handler.spec.ts", "api/providers/vscode-lm/__tests__/vscode-lm.spec.ts"],
 	rules: {
 		"@typescript-eslint/ban-ts-comment": ["error", { "ts-ignore": true }],
 	},

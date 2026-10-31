@@ -34,6 +34,6 @@ export * from "./vscode-extension-host.js"
 export * from "./vscode.js"
 export * from "./worktree.js"
 
-export * from "./providers/index.js"
+export * from "./openai-codex-rate-limits.js"
 
 export * from "./utils/looksLikeFilePath.js"

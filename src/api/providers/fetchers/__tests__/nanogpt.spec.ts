@@ -1,6 +1,6 @@
 import axios from "axios"
 
-import { NANOGPT_BASE_URL, nanoGptDefaultModelInfo } from "@roo-code/types"
+import { NANOGPT_BASE_URL, nanoGptDefaultModelInfo } from "../../nanogpt/definition"
 
 import { getNanoGptModels, parseNanoGptModel } from "../nanogpt"
 

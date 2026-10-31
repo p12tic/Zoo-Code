@@ -2,7 +2,7 @@
 
 import axios from "axios"
 
-import { kenariDefaultModelInfo } from "@roo-code/types"
+import { kenariDefaultModelInfo } from "../../kenari/definition"
 
 import { getKenariModels, parseKenariModel } from "../kenari"
 

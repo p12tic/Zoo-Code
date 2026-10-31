@@ -1,6 +1,7 @@
 import { Anthropic } from "@anthropic-ai/sdk"
 
-import { DEFAULT_OPEN_AI_STRICT_TOOL_SCHEMAS, type ModelInfo } from "@roo-code/types"
+import { type ModelInfo } from "@roo-code/types"
+import { DEFAULT_OPEN_AI_STRICT_TOOL_SCHEMAS } from "./openai/definition"
 
 import type { ApiHandler, ApiHandlerCreateMessageMetadata, ModelCacheScope } from "../index"
 import { ApiStream } from "../transform/stream"

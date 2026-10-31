@@ -1,0 +1,766 @@
+// npx vitest run src/api/providers/__tests__/minimax.spec.ts
+
+vitest.mock("vscode", () => ({
+	workspace: {
+		getConfiguration: vitest.fn().mockReturnValue({
+			get: vitest.fn().mockReturnValue(600), // Default timeout in seconds
+		}),
+	},
+}))
+
+import { Anthropic } from "@anthropic-ai/sdk"
+
+import { type MinimaxModelId, minimaxDefaultModelId, minimaxModels } from "../definition"
+
+import { type ApiStreamUsageChunk } from "../../../../api/transform/stream"
+import { MiniMaxHandler } from "../../minimax/handler"
+import { calculateApiCostAnthropic } from "../../../../shared/cost"
+import { MAX_TIMEOUT_MS } from "../../utils/abort-signal"
+import { asyncStreamFrom, collectStream } from "../../../../test-utils/stream"
+import { makeCreateMessageMetadata } from "../../../../test-utils/api"
+import { clearAllMocks } from "../../../../test-utils/reset"
+
+vitest.mock("@anthropic-ai/sdk", () => {
+	const mockCreate = vitest.fn()
+	return {
+		Anthropic: vitest.fn(function () {
+			return {
+				messages: {
+					create: mockCreate,
+				},
+			}
+		}),
+	}
+})
+
+describe("MiniMaxHandler", () => {
+	let handler: MiniMaxHandler
+	let mockCreate: any
+
+	beforeEach(() => {
+		clearAllMocks()
+		const anthropicInstance = (Anthropic as unknown as any)()
+		mockCreate = anthropicInstance.messages.create
+	})
+
+	describe("International MiniMax (default)", () => {
+		beforeEach(() => {
+			handler = new MiniMaxHandler({
+				minimaxApiKey: "test-minimax-api-key",
+				minimaxBaseUrl: "https://api.minimax.io/v1",
+			})
+		})
+
+		it("should use the correct international MiniMax base URL by default", () => {
+			new MiniMaxHandler({ minimaxApiKey: "test-minimax-api-key" })
+			expect(Anthropic).toHaveBeenCalledWith(
+				expect.objectContaining({
+					baseURL: "https://api.minimax.io/anthropic",
+				}),
+			)
+		})
+
+		it("should convert /v1 endpoint to /anthropic endpoint", () => {
+			new MiniMaxHandler({
+				minimaxApiKey: "test-minimax-api-key",
+				minimaxBaseUrl: "https://api.minimax.io/v1",
+			})
+			expect(Anthropic).toHaveBeenCalledWith(
+				expect.objectContaining({
+					baseURL: "https://api.minimax.io/anthropic",
+				}),
+			)
+		})
+
+		it("should use the provided API key", () => {
+			const minimaxApiKey = "test-minimax-api-key"
+			new MiniMaxHandler({ minimaxApiKey })
+			expect(Anthropic).toHaveBeenCalledWith(expect.objectContaining({ apiKey: minimaxApiKey }))
+		})
+
+		it("should return default model when no model is specified", () => {
+			const model = handler.getModel()
+			expect(model.id).toBe(minimaxDefaultModelId)
+			expect(model.info).toEqual(minimaxModels[minimaxDefaultModelId])
+		})
+
+		it("should return specified model when valid model is provided", () => {
+			const testModelId: MinimaxModelId = "MiniMax-M2"
+			const handlerWithModel = new MiniMaxHandler({
+				apiModelId: testModelId,
+				minimaxApiKey: "test-minimax-api-key",
+			})
+			const model = handlerWithModel.getModel()
+			expect(model.id).toBe(testModelId)
+			expect(model.info).toEqual(minimaxModels[testModelId])
+		})
+
+		it("should return MiniMax-M3 model with correct configuration", () => {
+			const testModelId: MinimaxModelId = "MiniMax-M3"
+			const handlerWithModel = new MiniMaxHandler({
+				apiModelId: testModelId,
+				minimaxApiKey: "test-minimax-api-key",
+			})
+			const model = handlerWithModel.getModel()
+			expect(model.id).toBe(testModelId)
+			expect(model.info).toEqual(minimaxModels[testModelId])
+			expect(model.info.contextWindow).toBe(1_000_000)
+			expect(model.info.maxTokens).toBe(16_384)
+			expect(model.info.supportsImages).toBe(true)
+			expect(model.info.supportsPromptCache).toBe(true)
+			expect(model.info.cacheWritesPrice).toBe(0.375)
+			expect(model.info.cacheReadsPrice).toBe(0.06)
+		})
+
+		it("should return MiniMax-M2.5 model with correct configuration", () => {
+			const testModelId: MinimaxModelId = "MiniMax-M2.5"
+			const handlerWithModel = new MiniMaxHandler({
+				apiModelId: testModelId,
+				minimaxApiKey: "test-minimax-api-key",
+			})
+			const model = handlerWithModel.getModel()
+			expect(model.id).toBe(testModelId)
+			expect(model.info).toEqual(minimaxModels[testModelId])
+			expect(model.info.contextWindow).toBe(204_800)
+			expect(model.info.maxTokens).toBe(16_384)
+			expect(model.info.supportsPromptCache).toBe(true)
+			expect(model.info.cacheWritesPrice).toBe(0.375)
+			expect(model.info.cacheReadsPrice).toBe(0.03)
+		})
+
+		it("should return MiniMax-M2 model with correct configuration", () => {
+			const testModelId: MinimaxModelId = "MiniMax-M2"
+			const handlerWithModel = new MiniMaxHandler({
+				apiModelId: testModelId,
+				minimaxApiKey: "test-minimax-api-key",
+			})
+			const model = handlerWithModel.getModel()
+			expect(model.id).toBe(testModelId)
+			expect(model.info).toEqual(minimaxModels[testModelId])
+			expect(model.info.contextWindow).toBe(204_800)
+			expect(model.info.maxTokens).toBe(16_384)
+			expect(model.info.supportsPromptCache).toBe(true)
+			expect(model.info.cacheWritesPrice).toBe(0.375)
+			expect(model.info.cacheReadsPrice).toBe(0.03)
+		})
+
+		it("should return MiniMax-M2-Stable model with correct configuration", () => {
+			const testModelId: MinimaxModelId = "MiniMax-M2-Stable"
+			const handlerWithModel = new MiniMaxHandler({
+				apiModelId: testModelId,
+				minimaxApiKey: "test-minimax-api-key",
+			})
+			const model = handlerWithModel.getModel()
+			expect(model.id).toBe(testModelId)
+			expect(model.info).toEqual(minimaxModels[testModelId])
+			expect(model.info.contextWindow).toBe(204_800)
+			expect(model.info.maxTokens).toBe(16_384)
+			expect(model.info.supportsPromptCache).toBe(true)
+			expect(model.info.cacheWritesPrice).toBe(0.375)
+			expect(model.info.cacheReadsPrice).toBe(0.03)
+		})
+	})
+
+	describe("China MiniMax", () => {
+		beforeEach(() => {
+			handler = new MiniMaxHandler({
+				minimaxApiKey: "test-minimax-api-key",
+				minimaxBaseUrl: "https://api.minimaxi.com/v1",
+			})
+		})
+
+		it("should use the correct China MiniMax base URL", () => {
+			new MiniMaxHandler({
+				minimaxApiKey: "test-minimax-api-key",
+				minimaxBaseUrl: "https://api.minimaxi.com/v1",
+			})
+			expect(Anthropic).toHaveBeenCalledWith(
+				expect.objectContaining({ baseURL: "https://api.minimaxi.com/anthropic" }),
+			)
+		})
+
+		it("should convert China /v1 endpoint to /anthropic endpoint", () => {
+			new MiniMaxHandler({
+				minimaxApiKey: "test-minimax-api-key",
+				minimaxBaseUrl: "https://api.minimaxi.com/v1",
+			})
+			expect(Anthropic).toHaveBeenCalledWith(
+				expect.objectContaining({ baseURL: "https://api.minimaxi.com/anthropic" }),
+			)
+		})
+
+		it("should use the provided API key for China", () => {
+			const minimaxApiKey = "test-minimax-api-key"
+			new MiniMaxHandler({ minimaxApiKey, minimaxBaseUrl: "https://api.minimaxi.com/v1" })
+			expect(Anthropic).toHaveBeenCalledWith(expect.objectContaining({ apiKey: minimaxApiKey }))
+		})
+
+		it("should return default model when no model is specified", () => {
+			const model = handler.getModel()
+			expect(model.id).toBe(minimaxDefaultModelId)
+			expect(model.info).toEqual(minimaxModels[minimaxDefaultModelId])
+		})
+	})
+
+	describe("Default behavior", () => {
+		it("should default to international base URL when none is specified", () => {
+			const handlerDefault = new MiniMaxHandler({ minimaxApiKey: "test-minimax-api-key" })
+			expect(Anthropic).toHaveBeenCalledWith(
+				expect.objectContaining({
+					baseURL: "https://api.minimax.io/anthropic",
+				}),
+			)
+
+			const model = handlerDefault.getModel()
+			expect(model.id).toBe(minimaxDefaultModelId)
+			expect(model.info).toEqual(minimaxModels[minimaxDefaultModelId])
+		})
+
+		it("should default to MiniMax-M3 model", () => {
+			const handlerDefault = new MiniMaxHandler({ minimaxApiKey: "test-minimax-api-key" })
+			const model = handlerDefault.getModel()
+			expect(model.id).toBe("MiniMax-M3")
+		})
+	})
+
+	describe("API Methods", () => {
+		beforeEach(() => {
+			handler = new MiniMaxHandler({ minimaxApiKey: "test-minimax-api-key" })
+		})
+
+		it("completePrompt method should return text from MiniMax API", async () => {
+			const expectedResponse = "This is a test response from MiniMax"
+			mockCreate.mockResolvedValueOnce({
+				content: [{ type: "text", text: expectedResponse }],
+			})
+			const result = await handler.completePrompt("test prompt")
+			expect(result).toBe(expectedResponse)
+		})
+
+		it("should handle errors in completePrompt", async () => {
+			const errorMessage = "MiniMax API error"
+			mockCreate.mockRejectedValueOnce(new Error(errorMessage))
+			await expect(handler.completePrompt("test prompt")).rejects.toThrow()
+		})
+
+		it("should pass abort signal through to client", async () => {
+			const controller = new AbortController()
+			mockCreate.mockResolvedValueOnce({
+				content: [{ type: "text", text: "response" }],
+			})
+			await handler.completePrompt("test prompt", { abortSignal: controller.signal })
+			expect(mockCreate).toHaveBeenCalledWith(
+				expect.objectContaining({ model: expect.any(String) }),
+				{ signal: controller.signal }, // second arg (options)
+			)
+		})
+
+		it("should work without options (backward compatible)", async () => {
+			mockCreate.mockResolvedValueOnce({
+				content: [{ type: "text", text: "response" }],
+			})
+			const result = await handler.completePrompt("test prompt")
+			expect(result).toBe("response")
+			expect(mockCreate).toHaveBeenCalledWith(
+				expect.objectContaining({ model: expect.any(String) }),
+				undefined, // second arg (options)
+			)
+		})
+
+		it("should pass timeout through to client", async () => {
+			const controller = new AbortController()
+			mockCreate.mockResolvedValueOnce({
+				content: [{ type: "text", text: "response" }],
+			})
+			await handler.completePrompt("test prompt", { abortSignal: controller.signal, timeoutMs: 5000 })
+			expect(mockCreate).toHaveBeenCalledWith(expect.objectContaining({ model: expect.any(String) }), {
+				signal: controller.signal,
+				timeout: 5000,
+			})
+		})
+
+		it.each([
+			{ label: "a whole-number", input: 3000, forwarded: 3000 },
+			// Only a call through toSdkTimeoutMs rounds this up.
+			{ label: "a fractional", input: 12.5, forwarded: 13 },
+			// Only a call through toSdkTimeoutMs caps at the Node timer maximum.
+			{ label: "an over-cap", input: MAX_TIMEOUT_MS + 1, forwarded: MAX_TIMEOUT_MS },
+		])("should forward $label timeoutMs as $forwarded when no signal provided", async ({ input, forwarded }) => {
+			mockCreate.mockResolvedValueOnce({
+				content: [{ type: "text", text: "response" }],
+			})
+			await handler.completePrompt("test prompt", { timeoutMs: input })
+			expect(mockCreate).toHaveBeenCalledWith(expect.objectContaining({ model: expect.any(String) }), {
+				timeout: forwarded,
+			})
+		})
+
+		// "No explicit timeout" must leave the option absent: timeout: 0 aborts
+		// immediately and negative/non-finite delays throw inside the SDK.
+		it.each([0, -5, Number.NaN, Number.POSITIVE_INFINITY])(
+			"should not forward an unusable timeoutMs (%s)",
+			async (timeoutMs) => {
+				mockCreate.mockClear()
+				mockCreate.mockResolvedValueOnce({ content: [{ type: "text", text: "response" }] })
+				await handler.completePrompt("test prompt", { timeoutMs })
+				expect(mockCreate).toHaveBeenCalledWith(
+					expect.objectContaining({ model: expect.any(String) }),
+					undefined,
+				)
+			},
+		)
+
+		it("completePrompt should send the configured temperature, user message and stream flag", async () => {
+			const temperatureHandler = new MiniMaxHandler({
+				minimaxApiKey: "test-minimax-api-key",
+				modelTemperature: 0.5,
+			})
+			mockCreate.mockResolvedValueOnce({
+				content: [{ type: "text", text: "response" }],
+			})
+
+			await temperatureHandler.completePrompt("test prompt")
+
+			expect(mockCreate).toHaveBeenCalledWith(
+				{
+					model: minimaxDefaultModelId,
+					max_tokens: 16_384,
+					temperature: 0.5,
+					messages: [{ role: "user", content: "test prompt" }],
+					stream: false,
+				},
+				undefined,
+			)
+		})
+
+		it("createMessage should yield text content from stream", async () => {
+			const testContent = "This is test content from MiniMax stream"
+
+			mockCreate.mockResolvedValueOnce(
+				asyncStreamFrom([
+					{
+						type: "content_block_start",
+						index: 0,
+						content_block: { type: "text", text: testContent },
+					},
+				]),
+			)
+
+			const stream = handler.createMessage("system prompt", [])
+			const firstChunk = await stream.next()
+
+			expect(firstChunk.done).toBe(false)
+			expect(firstChunk.value).toEqual({ type: "text", text: testContent })
+		})
+
+		it("createMessage should yield usage data from stream", async () => {
+			mockCreate.mockResolvedValueOnce(
+				asyncStreamFrom([
+					{
+						type: "message_start",
+						message: {
+							usage: {
+								input_tokens: 10,
+								output_tokens: 20,
+							},
+						},
+					},
+				]),
+			)
+
+			const stream = handler.createMessage("system prompt", [])
+			const firstChunk = await stream.next()
+
+			expect(firstChunk.done).toBe(false)
+			expect(firstChunk.value).toEqual({ type: "usage", inputTokens: 10, outputTokens: 20 })
+		})
+
+		it("createMessage should adopt cumulative message_delta output tokens for the final totalCost", async () => {
+			mockCreate.mockResolvedValueOnce(
+				asyncStreamFrom([
+					{
+						type: "message_start",
+						message: {
+							usage: {
+								input_tokens: 10,
+								output_tokens: 1,
+							},
+						},
+					},
+					{
+						type: "message_delta",
+						delta: { type: "stop_reason", stop_reason: "end_turn" },
+						usage: { output_tokens: 20 },
+					},
+					{
+						// A delta without a usable count (e.g. 0) must keep the
+						// previously adopted cumulative value.
+						type: "message_delta",
+						delta: { type: "stop_reason", stop_reason: "end_turn" },
+						usage: { output_tokens: 0 },
+					},
+					{
+						type: "message_stop",
+					},
+				]),
+			)
+
+			const chunks = await collectStream(handler.createMessage("system prompt", []))
+
+			const usageChunks = chunks.filter(
+				(chunk): chunk is ApiStreamUsageChunk => chunk.type === "usage" && chunk.totalCost !== undefined,
+			)
+			expect(usageChunks).toHaveLength(1)
+
+			const { info } = handler.getModel()
+			expect(usageChunks[0]?.totalCost).toBe(calculateApiCostAnthropic(info, 10, 20).totalCost)
+			expect(usageChunks[0]?.totalCost).not.toBe(calculateApiCostAnthropic(info, 10, 1).totalCost)
+		})
+
+		it("createMessage should pass correct parameters to MiniMax client", async () => {
+			const modelId: MinimaxModelId = "MiniMax-M2"
+			const modelInfo = minimaxModels[modelId]
+			const handlerWithModel = new MiniMaxHandler({
+				apiModelId: modelId,
+				minimaxApiKey: "test-minimax-api-key",
+			})
+
+			mockCreate.mockResolvedValueOnce(asyncStreamFrom([]))
+
+			const systemPrompt = "Test system prompt for MiniMax"
+			const messages: Anthropic.Messages.MessageParam[] = [{ role: "user", content: "Test message for MiniMax" }]
+
+			const messageGenerator = handlerWithModel.createMessage(systemPrompt, messages)
+			await messageGenerator.next()
+
+			expect(mockCreate).toHaveBeenCalledWith(
+				expect.objectContaining({
+					model: modelId,
+					max_tokens: Math.min(modelInfo.maxTokens, Math.ceil(modelInfo.contextWindow * 0.2)),
+					temperature: 1,
+					system: expect.any(Array),
+					messages: expect.any(Array),
+					stream: true,
+				}),
+				undefined,
+			)
+		})
+
+		it("should use temperature 1 by default", async () => {
+			mockCreate.mockResolvedValueOnce(asyncStreamFrom([]))
+
+			const messageGenerator = handler.createMessage("test", [])
+			await messageGenerator.next()
+
+			expect(mockCreate).toHaveBeenCalledWith(
+				expect.objectContaining({
+					temperature: 1,
+				}),
+				undefined,
+			)
+		})
+
+		it("should handle thinking blocks in stream", async () => {
+			const thinkingContent = "Let me think about this..."
+
+			mockCreate.mockResolvedValueOnce(
+				asyncStreamFrom([
+					{
+						type: "content_block_start",
+						index: 0,
+						content_block: { type: "thinking", thinking: thinkingContent },
+					},
+				]),
+			)
+
+			const stream = handler.createMessage("system prompt", [])
+			const firstChunk = await stream.next()
+
+			expect(firstChunk.done).toBe(false)
+			expect(firstChunk.value).toEqual({ type: "reasoning", text: thinkingContent })
+		})
+
+		it("should handle tool calls in stream", async () => {
+			mockCreate.mockResolvedValueOnce(
+				asyncStreamFrom([
+					{
+						type: "content_block_start",
+						index: 0,
+						content_block: {
+							type: "tool_use",
+							id: "tool-123",
+							name: "get_weather",
+							input: { city: "London" },
+						},
+					},
+					{
+						type: "content_block_stop",
+						index: 0,
+					},
+				]),
+			)
+
+			const stream = handler.createMessage("system prompt", [])
+			const firstChunk = await stream.next()
+
+			expect(firstChunk.done).toBe(false)
+			// Provider now yields tool_call_partial chunks, NativeToolCallParser handles reassembly
+			expect(firstChunk.value).toEqual({
+				type: "tool_call_partial",
+				index: 0,
+				id: "tool-123",
+				name: "get_weather",
+				arguments: undefined,
+			})
+		})
+
+		it("should reject with AbortError when createMessage is called with an already-aborted signal", async () => {
+			const abortedController = new AbortController()
+			abortedController.abort()
+
+			mockCreate.mockImplementation(async (_params: unknown, options?: { signal?: AbortSignal }) => {
+				if (options?.signal?.aborted) {
+					const error = new Error("The operation was aborted")
+					error.name = "AbortError"
+					throw error
+				}
+				return asyncStreamFrom([])
+			})
+
+			const stream = handler.createMessage(
+				"system prompt",
+				[{ role: "user", content: "Hello" }],
+				makeCreateMessageMetadata({ abortSignal: abortedController.signal }),
+			)
+
+			await expect(stream.next()).rejects.toMatchObject({ name: "AbortError" })
+		})
+
+		it("should abort the request when the external signal aborts mid-flight", async () => {
+			const controller = new AbortController()
+
+			mockCreate.mockImplementation((_params: unknown, options?: { signal?: AbortSignal }) => {
+				return new Promise<void>((_resolve, reject) => {
+					const signal = options?.signal
+					if (!signal) {
+						return
+					}
+					if (signal.aborted) {
+						const error = new Error("The operation was aborted")
+						error.name = "AbortError"
+						reject(error)
+						return
+					}
+					signal.addEventListener(
+						"abort",
+						() => {
+							const error = new Error("The operation was aborted")
+							error.name = "AbortError"
+							reject(error)
+						},
+						{ once: true },
+					)
+				})
+			})
+
+			const stream = handler.createMessage(
+				"system prompt",
+				[{ role: "user", content: "Hello" }],
+				makeCreateMessageMetadata({ abortSignal: controller.signal }),
+			)
+
+			const promise = stream.next()
+			controller.abort()
+			await expect(promise).rejects.toMatchObject({ name: "AbortError" })
+		})
+
+		it("should not pre-abort the bridged signal for a pending external signal", async () => {
+			const controller = new AbortController()
+			let observedSignal: AbortSignal | undefined
+
+			mockCreate.mockImplementation(async (_params: unknown, options?: { signal?: AbortSignal }) => {
+				observedSignal = options?.signal
+				return asyncStreamFrom([])
+			})
+
+			const stream = handler.createMessage(
+				"system prompt",
+				[{ role: "user", content: "Hello" }],
+				makeCreateMessageMetadata({ abortSignal: controller.signal }),
+			)
+
+			await expect(collectStream(stream)).resolves.toEqual([])
+
+			expect(observedSignal?.aborted).toBe(false)
+		})
+
+		it("should register the external abort listener with the once option", async () => {
+			const controller = new AbortController()
+			const addEventListenerSpy = vitest.spyOn(controller.signal, "addEventListener")
+
+			mockCreate.mockResolvedValueOnce(asyncStreamFrom([]))
+
+			const stream = handler.createMessage(
+				"system prompt",
+				[{ role: "user", content: "Hello" }],
+				makeCreateMessageMetadata({ abortSignal: controller.signal }),
+			)
+
+			await expect(collectStream(stream)).resolves.toEqual([])
+
+			expect(addEventListenerSpy).toHaveBeenCalledTimes(1)
+			// The listener is registered once so it detaches itself when the signal aborts.
+			expect(addEventListenerSpy.mock.calls[0][2]).toEqual({ once: true })
+		})
+
+		it("should remove the external abort listener when the stream completes", async () => {
+			const controller = new AbortController()
+			const addEventListenerSpy = vitest.spyOn(controller.signal, "addEventListener")
+			const removeEventListenerSpy = vitest.spyOn(controller.signal, "removeEventListener")
+
+			mockCreate.mockResolvedValueOnce(asyncStreamFrom([]))
+
+			const stream = handler.createMessage(
+				"system prompt",
+				[{ role: "user", content: "Hello" }],
+				makeCreateMessageMetadata({ abortSignal: controller.signal }),
+			)
+
+			await expect(collectStream(stream)).resolves.toEqual([])
+
+			expect(addEventListenerSpy).toHaveBeenCalledTimes(1)
+			const [event, listener] = addEventListenerSpy.mock.calls[0]
+			expect(event).toBe("abort")
+			// The same retained callback must be detached once the stream is done.
+			expect(removeEventListenerSpy).toHaveBeenCalledTimes(1)
+			expect(removeEventListenerSpy).toHaveBeenCalledWith("abort", listener)
+		})
+
+		it("should remove the external abort listener when message creation fails", async () => {
+			const controller = new AbortController()
+			const addEventListenerSpy = vitest.spyOn(controller.signal, "addEventListener")
+			const removeEventListenerSpy = vitest.spyOn(controller.signal, "removeEventListener")
+
+			mockCreate.mockRejectedValueOnce(new Error("MiniMax createMessage error"))
+
+			const stream = handler.createMessage(
+				"system prompt",
+				[{ role: "user", content: "Hello" }],
+				makeCreateMessageMetadata({ abortSignal: controller.signal }),
+			)
+
+			await expect(collectStream(stream)).rejects.toThrow("MiniMax createMessage error")
+
+			expect(addEventListenerSpy).toHaveBeenCalledTimes(1)
+			const [event, listener] = addEventListenerSpy.mock.calls[0]
+			expect(event).toBe("abort")
+			// The same retained callback must be detached when creation fails.
+			expect(removeEventListenerSpy).toHaveBeenCalledTimes(1)
+			expect(removeEventListenerSpy).toHaveBeenCalledWith("abort", listener)
+		})
+
+		it("should propagate the creation error when no external abort signal is provided", async () => {
+			mockCreate.mockRejectedValueOnce(new Error("MiniMax createMessage error"))
+
+			const stream = handler.createMessage("system prompt", [{ role: "user", content: "Hello" }])
+
+			await expect(collectStream(stream)).rejects.toThrow("MiniMax createMessage error")
+		})
+	})
+
+	describe("Model Configuration", () => {
+		it("should correctly configure MiniMax-M3 model properties", () => {
+			const model = minimaxModels["MiniMax-M3"]
+			expect(model.maxTokens).toBe(16_384)
+			expect(model.contextWindow).toBe(1_000_000)
+			expect(model.supportsImages).toBe(true)
+			expect(model.supportsPromptCache).toBe(true)
+			expect(model.inputPrice).toBe(0.3)
+			expect(model.outputPrice).toBe(1.2)
+			expect(model.cacheWritesPrice).toBe(0.375)
+			expect(model.cacheReadsPrice).toBe(0.06)
+		})
+
+		it("should correctly configure MiniMax-M2 model properties", () => {
+			const model = minimaxModels["MiniMax-M2"]
+			expect(model.maxTokens).toBe(16_384)
+			expect(model.contextWindow).toBe(204_800)
+			expect(model.supportsImages).toBe(false)
+			expect(model.supportsPromptCache).toBe(true)
+			expect(model.inputPrice).toBe(0.3)
+			expect(model.outputPrice).toBe(1.2)
+			expect(model.cacheWritesPrice).toBe(0.375)
+			expect(model.cacheReadsPrice).toBe(0.03)
+		})
+
+		it("should correctly configure MiniMax-M2-Stable model properties", () => {
+			const model = minimaxModels["MiniMax-M2-Stable"]
+			expect(model.maxTokens).toBe(16_384)
+			expect(model.contextWindow).toBe(204_800)
+			expect(model.supportsImages).toBe(false)
+			expect(model.supportsPromptCache).toBe(true)
+			expect(model.inputPrice).toBe(0.3)
+			expect(model.outputPrice).toBe(1.2)
+			expect(model.cacheWritesPrice).toBe(0.375)
+			expect(model.cacheReadsPrice).toBe(0.03)
+		})
+
+		it("should correctly configure MiniMax-M2.7 model properties", () => {
+			const model = minimaxModels["MiniMax-M2.7"]
+			expect(model.maxTokens).toBe(16_384)
+			expect(model.contextWindow).toBe(204_800)
+			expect(model.supportsImages).toBe(false)
+			expect(model.supportsPromptCache).toBe(true)
+			expect(model.inputPrice).toBe(0.3)
+			expect(model.outputPrice).toBe(1.2)
+			expect(model.cacheWritesPrice).toBe(0.375)
+			expect(model.cacheReadsPrice).toBe(0.06)
+		})
+
+		it("should correctly configure MiniMax-M2.7-highspeed model properties", () => {
+			const model = minimaxModels["MiniMax-M2.7-highspeed"]
+			expect(model.maxTokens).toBe(16_384)
+			expect(model.contextWindow).toBe(204_800)
+			expect(model.supportsImages).toBe(false)
+			expect(model.supportsPromptCache).toBe(true)
+			expect(model.inputPrice).toBe(0.6)
+			expect(model.outputPrice).toBe(2.4)
+			expect(model.cacheWritesPrice).toBe(0.375)
+			expect(model.cacheReadsPrice).toBe(0.06)
+		})
+
+		it("should correctly configure MiniMax-M2.5-highspeed model properties", () => {
+			const model = minimaxModels["MiniMax-M2.5-highspeed"]
+			expect(model.maxTokens).toBe(16_384)
+			expect(model.contextWindow).toBe(204_800)
+			expect(model.supportsImages).toBe(false)
+			expect(model.supportsPromptCache).toBe(true)
+			expect(model.inputPrice).toBe(0.6)
+			expect(model.outputPrice).toBe(2.4)
+			expect(model.cacheWritesPrice).toBe(0.375)
+			expect(model.cacheReadsPrice).toBe(0.03)
+		})
+
+		it("should correctly configure MiniMax-M2.1-highspeed model properties", () => {
+			const model = minimaxModels["MiniMax-M2.1-highspeed"]
+			expect(model.maxTokens).toBe(16_384)
+			expect(model.contextWindow).toBe(204_800)
+			expect(model.supportsImages).toBe(false)
+			expect(model.supportsPromptCache).toBe(true)
+			expect(model.inputPrice).toBe(0.6)
+			expect(model.outputPrice).toBe(2.4)
+			expect(model.cacheWritesPrice).toBe(0.375)
+			expect(model.cacheReadsPrice).toBe(0.03)
+		})
+
+		it("should correctly configure MiniMax-M2.1 model properties with updated context window", () => {
+			const model = minimaxModels["MiniMax-M2.1"]
+			expect(model.contextWindow).toBe(204_800)
+		})
+
+		it("should correctly configure MiniMax-M2 model properties with updated context window", () => {
+			const model = minimaxModels["MiniMax-M2"]
+			expect(model.contextWindow).toBe(204_800)
+		})
+	})
+})

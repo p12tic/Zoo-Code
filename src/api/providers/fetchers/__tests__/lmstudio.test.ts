@@ -1,7 +1,8 @@
 import axios from "axios"
 import { LMStudioClient, LLMInstanceInfo, LLMInfo } from "@lmstudio/sdk"
 
-import { ModelInfo, lMStudioDefaultModelInfo, providerIdentifiers } from "@roo-code/types"
+import { ModelInfo, providerIdentifiers } from "@roo-code/types"
+import { lMStudioDefaultModelInfo } from "../../lm-studio/definition"
 
 import { forceFullModelDetailsLoad, getLMStudioModels, hasLoadedFullDetails, parseLMStudioModel } from "../lmstudio"
 import type { ApiHandler } from "../../../index"

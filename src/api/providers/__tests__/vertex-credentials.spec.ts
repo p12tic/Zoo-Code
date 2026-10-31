@@ -51,9 +51,9 @@ vitest.mock("@anthropic-ai/vertex-sdk", () => ({
 	}),
 }))
 
-import { GeminiHandler } from "../gemini"
-import { VertexHandler } from "../vertex"
-import { AnthropicVertexHandler } from "../anthropic-vertex"
+import { GeminiHandler } from "../gemini/handler"
+import { VertexHandler } from "../vertex/handler"
+import { AnthropicVertexHandler } from "../vertex/anthropic-vertex"
 import { parseVertexJsonCredentials } from "../utils/vertex-credentials"
 
 const VALID_CREDS_JSON = JSON.stringify({

@@ -1,4 +1,4 @@
-import { moonshotModels } from "@roo-code/types"
+import { moonshotModels } from "../../moonshot/definition"
 
 import { getMoonshotModels } from "../moonshot"
 
